@@ -1,5 +1,9 @@
 import unittest
 from unittest.mock import patch
+
+from audiobook_generator.tts_providers.base_tts_provider import (
+    get_supported_tts_providers,
+)
 from main import handle_args
 
 
@@ -16,6 +20,16 @@ class TestHandleArgs(unittest.TestCase):
     def test_openai_args(self):
         config = handle_args()
         self.assertEqual(config.tts, 'openai')
+
+    # Test gemini arguments
+    @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--tts', 'gemini',
+                        '--gemini_sample_rate', '24000', '--gemini_channels', '1', '--output_format', 'wav'])
+    def test_gemini_args(self):
+        config = handle_args()
+        self.assertEqual(config.tts, 'gemini')
+        self.assertEqual(config.gemini_sample_rate, 24000)
+        self.assertEqual(config.gemini_channels, 1)
+        self.assertEqual(config.output_format, 'wav')
 
     # Test unsupported TTS provider
     @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--tts', 'unsupported_tts'])
@@ -34,6 +48,10 @@ class TestHandleArgs(unittest.TestCase):
     def test_invalid_log_level(self):
         with self.assertRaises(SystemExit):
             handle_args()
+
+    def test_gemini_provider_in_supported_list(self):
+        providers = get_supported_tts_providers()
+        self.assertIn('gemini', providers)
 
 
 if __name__ == '__main__':

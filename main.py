@@ -17,7 +17,7 @@ def handle_args():
         "--tts",
         choices=get_supported_tts_providers(),
         default=get_supported_tts_providers()[0],
-        help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set.",
+        help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided.",
     )
     parser.add_argument(
         "--log",
@@ -201,6 +201,33 @@ def handle_args():
         "--piper_length_scale",
         default=1.0,
         help="Phoneme length, a.k.a. speaking rate",
+    )
+
+    gemini_tts_group = parser.add_argument_group(title="gemini specific")
+    gemini_tts_group.add_argument(
+        "--gemini_api_key",
+        help="Google API key for Gemini TTS. Defaults to GOOGLE_API_KEY environment variable if not provided.",
+    )
+    gemini_tts_group.add_argument(
+        "--gemini_audio_encoding",
+        default="pcm16",
+        help="Audio encoding of Gemini inline data payload (default: pcm16).",
+    )
+    gemini_tts_group.add_argument(
+        "--gemini_sample_rate",
+        type=int,
+        default=24000,
+        help="Sample rate in Hz for Gemini PCM output (default: 24000).",
+    )
+    gemini_tts_group.add_argument(
+        "--gemini_channels",
+        type=int,
+        default=1,
+        help="Number of channels in Gemini PCM output (default: 1).",
+    )
+    gemini_tts_group.add_argument(
+        "--gemini_speaker_map",
+        help="JSON object mapping speaker labels to Gemini voice names for multi-speaker prompts, e.g. '{\"Joe\": \"Kore\", \"Jane\": \"Puck\"}'.",
     )
 
     args = parser.parse_args()

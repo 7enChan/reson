@@ -12,6 +12,8 @@ from audiobook_generator.tts_providers.edge_tts_provider import get_edge_tts_sup
     get_edge_tts_supported_language, get_edge_tts_supported_output_formats
 from audiobook_generator.tts_providers.openai_tts_provider import get_openai_supported_models, \
     get_openai_supported_voices, get_openai_instructions_example, get_openai_supported_output_formats
+from audiobook_generator.tts_providers.gemini_tts_provider import get_gemini_supported_models, \
+    get_gemini_supported_output_formats, get_gemini_supported_voices
 from audiobook_generator.tts_providers.piper_tts_provider import get_piper_supported_languages, \
     get_piper_supported_voices, get_piper_supported_qualities, get_piper_supported_speakers
 from audiobook_generator.utils.log_handler import generate_unique_log_path
@@ -49,11 +51,24 @@ def get_piper_supported_speakers_gui(language, voice, quality):
 
 def process_ui_form(input_file, output_dir, worker_count, log_level, output_text, preview,
                     search_and_replace_file, title_mode, new_line_mode, chapter_start, chapter_end, remove_endnotes, remove_reference_numbers,
+                    azure_api_key, azure_region,
                     model, voices, speed, openai_output_format, instructions,
                     azure_language, azure_voice, azure_output_format, azure_break_duration,
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
+                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_speaker_map, gemini_instructions,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence):
+
+    sanitized_key = (azure_api_key or "").strip()
+    sanitized_region = (azure_region or "").strip()
+    if sanitized_key:
+        os.environ["MS_TTS_KEY"] = sanitized_key
+    if sanitized_region:
+        os.environ["MS_TTS_REGION"] = sanitized_region
+
+    sanitized_gemini_key = (gemini_api_key or "").strip()
+    if sanitized_gemini_key:
+        os.environ["GOOGLE_API_KEY"] = sanitized_gemini_key
 
     config = GeneralConfig(None)
     config.input_file = input_file.name if hasattr(input_file, 'name') else input_file
@@ -96,6 +111,16 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
         config.voice_volume = f"{edge_volume:+}%"
         config.voice_pitch = f"{edge_pitch:+}Hz"
         config.break_duration = edge_break_duration
+    elif selected_tts == "Gemini":
+        config.tts = "gemini"
+        config.model_name = gemini_model
+        config.voice_name = gemini_voice
+        config.output_format = gemini_output_format
+        config.gemini_api_key = sanitized_gemini_key or None
+        config.gemini_sample_rate = int(gemini_sample_rate) if gemini_sample_rate else None
+        config.gemini_channels = int(gemini_channels) if gemini_channels else None
+        config.gemini_speaker_map = gemini_speaker_map.strip() if gemini_speaker_map else None
+        config.instructions = gemini_instructions.strip() if gemini_instructions else None
     elif selected_tts == "Piper":
         config.tts = "piper"
         config.piper_path = piper_executable_path
@@ -132,71 +157,198 @@ def terminate_audiobook_generator():
 def host_ui(config):
     default_output_dir = os.path.join("audiobook_output", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     print(f"Default audiobook output directory: {default_output_dir}")
-    with gr.Blocks(analytics_enabled=False, title="Epub to Audiobook Converter") as ui:
+    custom_css = """
+    .gradio-container {
+        max-width: 960px !important;
+        margin: 0 auto !important;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    @media (max-width: 1080px) {
+        .gradio-container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+    }
+    """
+
+    with gr.Blocks(analytics_enabled=False, title="Epub to Audiobook Converter", css=custom_css) as ui:
+        gr.Markdown("## 基本设置")
         with gr.Row(equal_height=True):
+            input_file = gr.File(
+                label="Select the book file to process",
+                file_types=[".epub", ".md", ".markdown"],
+                file_count="single",
+                interactive=True,
+            )
             with gr.Column():
-                input_file = gr.File(label="Select the book file to process", file_types=[".epub"], 
-                                    file_count="single", interactive=True)
-
-            with gr.Column():
-                output_dir = gr.Textbox(label="Set Output Directory", value=default_output_dir, interactive=True, info="Default one should be fine.")
-                log_level = gr.Dropdown(["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"], label="Log Level", value="INFO", interactive=True)
-
-            with gr.Column():
-                worker_count = gr.Slider(minimum=1, maximum=8, step=1, label="Worker Count", value=1,
-                                     info="Number of workers to use for processing. More workers may speed up the process but will use more resources or cause instability. ***Only change if you know how to debug potential issues.***")
-
-            with gr.Column():
-                output_text = gr.Checkbox(label="Enable Output Text", value=False,
-                                      info="Export a plain text file for each chapter.")
-                preview = gr.Checkbox(label="Enable Preview Mode", value=False,
-                                  info="It will not convert the to audio, only prepare chapters and cost. Recommended to toggle on when testing book parsing ***without*** audio generation.")
-
-        gr.Markdown("---")
+                output_dir = gr.Textbox(
+                    label="Set Output Directory",
+                    value=default_output_dir,
+                    interactive=True,
+                    info="Default one should be fine."
+                )
+                log_level = gr.Dropdown(
+                    ["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"],
+                    label="Log Level",
+                    value="INFO",
+                    interactive=True,
+                )
         with gr.Row(equal_height=True):
+            worker_count = gr.Slider(
+                minimum=1,
+                maximum=8,
+                step=1,
+                label="Worker Count",
+                value=1,
+                info="Number of workers to use for processing. More workers may speed up the process but will use more resources or cause instability. ***Only change if you know how to debug potential issues.***"
+            )
             with gr.Column():
-                search_and_replace_file = gr.File(label="Select search and replace file (optional)", file_types=[".txt"], 
-                                                 file_count="single", interactive=True)
+                output_text = gr.Checkbox(
+                    label="Enable Output Text",
+                    value=False,
+                    info="Export a plain text file for each chapter."
+                )
+                preview = gr.Checkbox(
+                    label="Enable Preview Mode",
+                    value=False,
+                    info="It will not convert the to audio, only prepare chapters and cost. Recommended to toggle on when testing book parsing ***without*** audio generation."
+                )
 
-            title_mode = gr.Dropdown(["auto", "tag_text", "first_few"], label="Title Mode", value="auto",
-                                     interactive=True, info="Choose the parse mode for chapter title.")
-            new_line_mode = gr.Dropdown(["single", "double", "none"], label="New Line Mode", value="double",
-                                 interactive=True, info="Choose the mode of detecting new paragraphs")
-            chapter_start = gr.Slider(minimum=1, maximum=100, step=1, label="Chapter Start", value=1,
-                                      interactive=True, info="Select chapter start index (default: 1)")
-            chapter_end = gr.Slider(minimum=-1, maximum=100, step=1, label="Chapter End", value=-1,
-                                    interactive=True, info="Chapter end index (default: -1, means last chapter)")
+        with gr.Accordion("云服务凭证（Azure）", open=False):
+            gr.Markdown("在此临时注入 Azure TTS 访问凭证，便于无需提前导出环境变量。")
+            with gr.Row(equal_height=True):
+                azure_api_key = gr.Textbox(
+                    label="Azure TTS Key (MS_TTS_KEY)",
+                    value=os.environ.get("MS_TTS_KEY", ""),
+                    placeholder="只在此处输入，不会写入磁盘",
+                    type="password",
+                    interactive=True,
+                )
+                azure_region = gr.Textbox(
+                    label="Azure 区域 (MS_TTS_REGION)",
+                    value=os.environ.get("MS_TTS_REGION", ""),
+                    placeholder="例如 eastus、westus2 等",
+                    interactive=True,
+                )
+
+        gr.Markdown("## 文本预处理")
+        with gr.Row(equal_height=True):
+            search_and_replace_file = gr.File(
+                label="Select search and replace file (optional)",
+                file_types=[".txt"],
+                file_count="single",
+                interactive=True,
+            )
+            title_mode = gr.Dropdown(
+                ["auto", "tag_text", "first_few"],
+                label="Title Mode",
+                value="auto",
+                interactive=True,
+                info="Choose the parse mode for chapter title."
+            )
+            new_line_mode = gr.Dropdown(
+                ["single", "double", "none"],
+                label="New Line Mode",
+                value="double",
+                interactive=True,
+                info="Choose the mode of detecting new paragraphs"
+            )
+        with gr.Row(equal_height=True):
+            chapter_start = gr.Slider(
+                minimum=1,
+                maximum=100,
+                step=1,
+                label="Chapter Start",
+                value=1,
+                interactive=True,
+                info="Select chapter start index (default: 1)"
+            )
+            chapter_end = gr.Slider(
+                minimum=-1,
+                maximum=100,
+                step=1,
+                label="Chapter End",
+                value=-1,
+                interactive=True,
+                info="Chapter end index (default: -1, means last chapter)"
+            )
             with gr.Column():
-                remove_endnotes = gr.Checkbox(label="Remove Endnotes", value=False, info="Remove endnotes from text")
+                remove_endnotes = gr.Checkbox(
+                    label="Remove Endnotes",
+                    value=False,
+                    info="Remove endnotes from text"
+                )
+                remove_reference_numbers = gr.Checkbox(
+                    label="Remove Reference Numbers",
+                    value=False,
+                    info="Remove reference numbers from text"
+                )
 
-                remove_reference_numbers = gr.Checkbox(label="Remove Reference Numbers", value=False,
-                                                       info="Remove reference numbers from text")
-
-
-        gr.Markdown("---")
+        gr.Markdown("## 语音服务设置")
         with gr.Tabs(selected="edge_tab_id"):
             with gr.Tab("OpenAI", id="openai_tab_id") as open_ai_tab:
                 gr.Markdown("It is expected that user configured: `OPENAI_API_KEY` in the environment variables. Optionally `OPENAI_API_BASE` can be set to overwrite OpenAI API endpoint.")
                 with gr.Row(equal_height=True):
-                    model = gr.Dropdown(get_openai_supported_models(), label="Model", interactive=True, allow_custom_value=True)
-                    voices = gr.Dropdown(get_openai_supported_voices(), label="Voice", interactive=True, allow_custom_value=True)
-                    speed = gr.Slider(minimum=0.25, maximum=4.0, step=0.1, label="Speed", value=1.0,
-                                      info="Speed of the speech, 1.0 is normal speed")
-                    openai_output_format = gr.Dropdown(get_openai_supported_output_formats(), label="Output Format", interactive=True)
-                with gr.Row(equal_height=True):
-                    instructions = gr.TextArea(label="Voice Instructions", interactive=True, lines=3,
-                                               value=get_openai_instructions_example())
+                    model = gr.Dropdown(
+                        get_openai_supported_models(),
+                        label="Model",
+                        interactive=True,
+                        allow_custom_value=True
+                    )
+                    voices = gr.Dropdown(
+                        get_openai_supported_voices(),
+                        label="Voice",
+                        interactive=True,
+                        allow_custom_value=True
+                    )
+                    speed = gr.Slider(
+                        minimum=0.25,
+                        maximum=4.0,
+                        step=0.1,
+                        label="Speed",
+                        value=1.0,
+                        info="Speed of the speech, 1.0 is normal speed"
+                    )
+                    openai_output_format = gr.Dropdown(
+                        get_openai_supported_output_formats(),
+                        label="Output Format",
+                        interactive=True
+                    )
+                instructions = gr.TextArea(
+                    label="Voice Instructions",
+                    interactive=True,
+                    lines=3,
+                    value=get_openai_instructions_example()
+                )
                 open_ai_tab.select(on_tab_change, inputs=None, outputs=None)
+
             with gr.Tab("Azure", id="azure_tab_id") as azure_tab:
                 gr.Markdown("It is expected that user configured: `MS_TTS_KEY` and `MS_TTS_REGION` in the environment variables.")
                 with gr.Row(equal_height=True):
-                    azure_language = gr.Dropdown(get_azure_supported_languages(), value="en-US", label="Language",
-                                               interactive=True, info="Select source language")
+                    azure_language = gr.Dropdown(
+                        get_azure_supported_languages(),
+                        value="en-US",
+                        label="Language",
+                        interactive=True,
+                        info="Select source language"
+                    )
                     azure_voice = get_azure_voices_by_language(azure_language.value)
-                    azure_output_format = gr.Dropdown(get_azure_supported_output_formats(), label="Output Format", interactive=True,
-                                                value="audio-24khz-48kbitrate-mono-mp3", info="Select output format")
-                    azure_break_duration = gr.Slider(minimum=0, maximum=5000, step=1, label="Break Duration", value=1250,
-                                               info="Break duration in milliseconds. Valid values range from 0 to 5000, default: 1250ms")
+                    azure_output_format = gr.Dropdown(
+                        get_azure_supported_output_formats(),
+                        label="Output Format",
+                        interactive=True,
+                        value="audio-24khz-48kbitrate-mono-mp3",
+                        info="Select output format"
+                    )
+                    azure_break_duration = gr.Slider(
+                        minimum=0,
+                        maximum=5000,
+                        step=1,
+                        label="Break Duration",
+                        value=1250,
+                        info="Break duration in milliseconds. Valid values range from 0 to 5000, default: 1250ms"
+                    )
                     azure_language.change(
                         fn=get_azure_voices_by_language,
                         inputs=azure_language,
@@ -206,20 +358,58 @@ def host_ui(config):
 
             with gr.Tab("Edge", id="edge_tab_id") as edge_tab:
                 with gr.Row(equal_height=True):
-                    edge_language = gr.Dropdown(get_edge_tts_supported_language(), value="en-US", label="Language",
-                                           interactive=True, info="Select source language")
+                    edge_language = gr.Dropdown(
+                        get_edge_tts_supported_language(),
+                        value="en-US",
+                        label="Language",
+                        interactive=True,
+                        info="Select source language"
+                    )
                     edge_voice = get_edge_voices_by_language(edge_language.value)
-                    edge_output_format = gr.Dropdown(get_edge_tts_supported_output_formats(), label="Output Format",
-                                                      interactive=True, info="Select output format")
-                    proxy = gr.Textbox(label="Proxy", value="", interactive=True, info="Optional proxy server for the TTS provider")
-                    edge_voice_rate = gr.Slider(minimum=-50, maximum=100, step=1, label="Voice Rate", value=0,
-                                           info="Speaking rate (speed) of the text.")
-                    edge_volume = gr.Slider(minimum=-100, maximum=100, step=1, label="Voice Volume", value=0,
-                                            info="Volume level of the speaking voice.")
-                    edge_pitch = gr.Slider(minimum=-100, maximum=100, step=1, label="Voice Pitch", value=0,
-                                           info="Baseline pitch tone for the text.")
-                    edge_break_duration = gr.Slider(minimum=0, maximum=5000, step=1, label="Break Duration", value=1250,
-                                               info="Break duration in milliseconds. Valid values range from 0 to 5000, default: 1250ms")
+                    edge_output_format = gr.Dropdown(
+                        get_edge_tts_supported_output_formats(),
+                        label="Output Format",
+                        interactive=True,
+                        info="Select output format"
+                    )
+                    proxy = gr.Textbox(
+                        label="Proxy",
+                        value="",
+                        interactive=True,
+                        info="Optional proxy server for the TTS provider"
+                    )
+                    edge_voice_rate = gr.Slider(
+                        minimum=-50,
+                        maximum=100,
+                        step=1,
+                        label="Voice Rate",
+                        value=0,
+                        info="Speaking rate (speed) of the text."
+                    )
+                    edge_volume = gr.Slider(
+                        minimum=-100,
+                        maximum=100,
+                        step=1,
+                        label="Voice Volume",
+                        value=0,
+                        info="Volume level of the speaking voice."
+                    )
+                    edge_pitch = gr.Slider(
+                        minimum=-100,
+                        maximum=100,
+                        step=1,
+                        label="Voice Pitch",
+                        value=0,
+                        info="Baseline pitch tone for the text."
+                    )
+                    edge_break_duration = gr.Slider(
+                        minimum=0,
+                        maximum=5000,
+                        step=1,
+                        label="Break Duration",
+                        value=1250,
+                        info="Break duration in milliseconds. Valid values range from 0 to 5000, default: 1250ms"
+                    )
 
                     edge_language.change(
                         fn=get_edge_voices_by_language,
@@ -228,17 +418,93 @@ def host_ui(config):
                     )
                 edge_tab.select(on_tab_change, inputs=None, outputs=None)
 
+            with gr.Tab("Gemini", id="gemini_tab_id") as gemini_tab:
+                gemini_tab.select(on_tab_change, inputs=None, outputs=None)
+
+                with gr.Row(equal_height=True):
+                    gemini_model = gr.Dropdown(
+                        get_gemini_supported_models(),
+                        label="Model",
+                        value="gemini-2.5-pro-preview-tts",
+                        interactive=True,
+                        allow_custom_value=True,
+                    )
+                    gemini_voice = gr.Dropdown(
+                        get_gemini_supported_voices(),
+                        label="Voice",
+                        value="Kore",
+                        interactive=True,
+                        info="Select Gemini preview voice",
+                    )
+                    gemini_output_format = gr.Dropdown(
+                        get_gemini_supported_output_formats(),
+                        label="Output Format",
+                        value="wav",
+                        interactive=True,
+                        info="Preferred final audio container",
+                    )
+
+                gemini_api_key = gr.Textbox(
+                    label="Gemini API Key (GOOGLE_API_KEY)",
+                    value=os.environ.get("GOOGLE_API_KEY", ""),
+                    placeholder="Only stored in memory for this session",
+                    type="password",
+                    interactive=True,
+                )
+
+                with gr.Row(equal_height=True):
+                    gemini_sample_rate = gr.Slider(
+                        minimum=8000,
+                        maximum=48000,
+                        step=1000,
+                        label="Sample Rate (Hz)",
+                        value=24000,
+                        info="Default: 24000 Hz",
+                    )
+                    gemini_channels = gr.Dropdown(
+                        ["1", "2"],
+                        label="Channels",
+                        value="1",
+                        interactive=True,
+                        info="Gemini currently outputs mono (1 channel)",
+                    )
+
+                gemini_speaker_map = gr.TextArea(
+                    label="Speaker Voice Map (JSON)",
+                    placeholder='{"Narrator": "Kore", "Hero": "Puck"}',
+                    lines=3,
+                    interactive=True,
+                    info="Optional: map speaker names in your prompt to Gemini voices",
+                )
+
+                gemini_instructions = gr.TextArea(
+                    label="Style Instructions",
+                    placeholder="Optional: e.g. 'Narrate warmly with a steady pace.'",
+                    lines=3,
+                    interactive=True,
+                )
+
             with gr.Tab("Piper", id="piper_tab_id") as piper_tab:
                 piper_tab.select(on_tab_change, inputs=None, outputs=None)
                 with gr.Row(equal_height=True):
                     with gr.Column():
-                        piper_deployment = gr.Dropdown(["Docker", "Local"], label="Select Piper Deployment", interactive=True)
+                        piper_deployment = gr.Dropdown(
+                            ["Docker", "Local"],
+                            label="Select Piper Deployment",
+                            interactive=True
+                        )
 
                         local_group = gr.Group(visible=False)
                         with local_group:
-                            piper_executable_path = gr.Textbox(label="Piper executable path", interactive=True)
-                            piper_file_upload = gr.File(label="Upload Piper executable", 
-                                                      file_count="single", interactive=True)
+                            piper_executable_path = gr.Textbox(
+                                label="Piper executable path",
+                                interactive=True
+                            )
+                            piper_file_upload = gr.File(
+                                label="Upload Piper executable",
+                                file_count="single",
+                                interactive=True
+                            )
                             piper_file_upload.change(
                                 fn=lambda x: x.name if x else "",
                                 inputs=piper_file_upload,
@@ -247,7 +513,11 @@ def host_ui(config):
 
                         docker_group = gr.Row(visible=True, equal_height=True)
                         with docker_group:
-                            piper_docker_image = gr.Textbox(label="Piper Docker Image", value="lscr.io/linuxserver/piper:latest", interactive=True)
+                            piper_docker_image = gr.Textbox(
+                                label="Piper Docker Image",
+                                value="lscr.io/linuxserver/piper:latest",
+                                interactive=True
+                            )
 
                     piper_deployment.change(
                         fn=lambda x: (gr.update(visible=x == "Local"), gr.update(visible=x == "Docker")),
@@ -257,11 +527,32 @@ def host_ui(config):
 
                     with gr.Column():
                         with gr.Row(equal_height=True):
-                            piper_language = gr.Dropdown(get_piper_supported_languages(), label="Language", value="en_US", interactive=True, info="Select language")
-                            piper_voice = gr.Dropdown(get_piper_supported_voices(piper_language.value), label="Voice", interactive=True, info="Select voice")
+                            piper_language = gr.Dropdown(
+                                get_piper_supported_languages(),
+                                label="Language",
+                                value="en_US",
+                                interactive=True,
+                                info="Select language"
+                            )
+                            piper_voice = gr.Dropdown(
+                                get_piper_supported_voices(piper_language.value),
+                                label="Voice",
+                                interactive=True,
+                                info="Select voice"
+                            )
                         with gr.Row(equal_height=True):
-                            piper_quality = gr.Dropdown(get_piper_supported_qualities(piper_language.value, piper_voice.value), label="Quality", interactive=True, info="Select quality")
-                            piper_speaker = gr.Dropdown(get_piper_supported_speakers(piper_language.value, piper_voice.value, piper_quality.value), label="Speaker", interactive=True, info="Select speaker if available")
+                            piper_quality = gr.Dropdown(
+                                get_piper_supported_qualities(piper_language.value, piper_voice.value),
+                                label="Quality",
+                                interactive=True,
+                                info="Select quality"
+                            )
+                            piper_speaker = gr.Dropdown(
+                                get_piper_supported_speakers(piper_language.value, piper_voice.value, piper_quality.value),
+                                label="Speaker",
+                                interactive=True,
+                                info="Select speaker if available"
+                            )
 
                     piper_language.change(
                         fn=get_piper_supported_voices_gui,
@@ -283,29 +574,60 @@ def host_ui(config):
 
                     with gr.Column():
                         with gr.Row(equal_height=True):
-                            piper_noise_scale = gr.Slider(minimum=0.0, maximum=2.0, step=0.01, label="Audio Noise Scale", value=0.667)
-                            piper_noise_w_scale = gr.Slider(minimum=0.0, maximum=2.0, step=0.1, label="Width Noise Scale", value=0.8)
+                            piper_noise_scale = gr.Slider(
+                                minimum=0.0,
+                                maximum=2.0,
+                                step=0.01,
+                                label="Audio Noise Scale",
+                                value=0.667
+                            )
+                            piper_noise_w_scale = gr.Slider(
+                                minimum=0.0,
+                                maximum=2.0,
+                                step=0.1,
+                                label="Width Noise Scale",
+                                value=0.8
+                            )
                         with gr.Row(equal_height=True):
-                            piper_length_scale = gr.Slider(minimum=0.0, maximum=5.0, step=0.1, label="Audio Length Scale", value=1.0)
-                            piper_sentence_silence = gr.Slider(minimum=0.0, maximum=2.0, step=0.1, label="Sentence Silence", value=0.2)
-        gr.Markdown("---")
+                            piper_length_scale = gr.Slider(
+                                minimum=0.0,
+                                maximum=5.0,
+                                step=0.1,
+                                label="Audio Length Scale",
+                                value=1.0
+                            )
+                            piper_sentence_silence = gr.Slider(
+                                minimum=0.0,
+                                maximum=2.0,
+                                step=0.1,
+                                label="Sentence Silence",
+                                value=0.2
+                            )
+
+        gr.Markdown("## 运行控制")
         with gr.Row(equal_height=True):
             gr.Button("Stop").click(
                 fn=terminate_audiobook_generator,
                 inputs=None,
-                outputs=None)
+                outputs=None
+            )
             gr.Button("Start", variant="primary").click(
                 fn=process_ui_form,
                 inputs=[
                     input_file, output_dir, worker_count, log_level, output_text, preview,
                     search_and_replace_file, title_mode, new_line_mode, chapter_start, chapter_end, remove_endnotes, remove_reference_numbers,
+                    azure_api_key, azure_region,
                     model, voices, speed, openai_output_format, instructions,
                     azure_language, azure_voice, azure_output_format, azure_break_duration,
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
+                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_speaker_map, gemini_instructions,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence
                 ],
-                outputs=None)
+                outputs=None
+            )
+
+        gr.Markdown("## 日志")
         with gr.Row():
             global webui_log_file
             webui_log_file = generate_unique_log_path("EtA_WebUI")

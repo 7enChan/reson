@@ -101,7 +101,7 @@ class EpubBookParser(BaseBookParser):
             else:
                 raise ValueError("Unsupported title_mode")
             logger.debug(f"Raw title: <{title}>")
-            title = self._sanitize_title(title, break_string)
+            title = self.sanitize_title(title, break_string)
             logger.debug(f"Sanitized title: <{title}>")
 
             chapters.append((title, cleaned_text))
@@ -117,12 +117,3 @@ class EpubBookParser(BaseBookParser):
                     if '==' in search_and_replace and not search_and_replace.startswith('==') and not search_and_replace.endswith('==') and not search_and_replace.startswith('#'):
                         search_and_replaces = search_and_replaces + [ {'search': r"{}".format(search_and_replace.split('==')[0]), 'replace': r"{}".format(search_and_replace.split('==')[1][:-1])} ]
         return search_and_replaces
-
-    @staticmethod
-    def _sanitize_title(title, break_string) -> str:
-        # replace MAGIC_BREAK_STRING with a blank space
-        # strip incase leading bank is missing
-        title = title.replace(break_string, " ")
-        sanitized_title = re.sub(r"[^\w\s]", "", title, flags=re.UNICODE)
-        sanitized_title = re.sub(r"\s+", "_", sanitized_title.strip())
-        return sanitized_title

@@ -49,5 +49,12 @@ class GeneralConfig:
         self.piper_length_scale = getattr(args, 'piper_length_scale', None)
         self.piper_sentence_silence = getattr(args, 'piper_sentence_silence', None)
 
+        # TTS provider: Gemini specific arguments
+        self.gemini_api_key = getattr(args, 'gemini_api_key', None)
+        self.gemini_audio_encoding = getattr(args, 'gemini_audio_encoding', None)
+        self.gemini_sample_rate = getattr(args, 'gemini_sample_rate', None)
+        self.gemini_channels = getattr(args, 'gemini_channels', None)
+        self.gemini_speaker_map = getattr(args, 'gemini_speaker_map', None)
+
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())

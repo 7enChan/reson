@@ -43,3 +43,27 @@ def get_openai_config():
         speed=1.0
     )
     return GeneralConfig(args)
+
+
+def get_markdown_config():
+    args = MagicMock(
+        input_file='tests/fixtures/markdown_sample.md',
+        output_folder='output',
+        preview=False,
+        output_text=False,
+        title_mode='auto',
+        log='INFO',
+        newline_mode='double',
+        chapter_start=1,
+        chapter_end=-1,
+        remove_endnotes=False,
+        remove_reference_numbers=False,
+        search_and_replace_file='',
+        tts='edge',
+        language='en-US',
+        voice_name='en-US-GuyNeural',
+        output_format='audio-24khz-48kbitrate-mono-mp3',
+        model_name='',
+        break_duration='1250'
+    )
+    return GeneralConfig(args)
