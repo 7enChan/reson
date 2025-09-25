@@ -6,6 +6,11 @@ from audiobook_generator.core.audiobook_generator import AudiobookGenerator
 from audiobook_generator.tts_providers.base_tts_provider import (
     get_supported_tts_providers,
 )
+from audiobook_generator.tts_providers.qwen_tts_provider import (
+    get_qwen_supported_language_types,
+    get_qwen_supported_models,
+    get_qwen_supported_voices,
+)
 from audiobook_generator.utils.log_handler import setup_logging, generate_unique_log_path
 
 
@@ -17,7 +22,7 @@ def handle_args():
         "--tts",
         choices=get_supported_tts_providers(),
         default=get_supported_tts_providers()[0],
-        help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided.",
+           help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, qwen3: Alibaba Qwen3 TTS, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided. When using qwen3, environment variable DASHSCOPE_API_KEY must be set unless --qwen_api_key is provided.",
     )
     parser.add_argument(
         "--log",
@@ -228,6 +233,45 @@ def handle_args():
     gemini_tts_group.add_argument(
         "--gemini_speaker_map",
         help="JSON object mapping speaker labels to Gemini voice names for multi-speaker prompts, e.g. '{\"Joe\": \"Kore\", \"Jane\": \"Puck\"}'.",
+    )
+    gemini_tts_group.add_argument(
+        "--gemini_temperature",
+        type=float,
+        default=0.2,
+        help="Sampling temperature for Gemini TTS (0.0-1.0). Lower values sound more consistent. Default: 0.2",
+    )
+
+    qwen_tts_group = parser.add_argument_group(title="qwen3 specific")
+    qwen_tts_group.add_argument(
+        "--qwen_api_key",
+        help="DashScope API key for Qwen3 TTS. Defaults to DASHSCOPE_API_KEY environment variable if not provided.",
+    )
+    qwen_tts_group.add_argument(
+        "--qwen_language_type",
+        choices=get_qwen_supported_language_types(),
+        help="Language type parameter accepted by Qwen3 TTS (e.g. Chinese, English).",
+    )
+    qwen_tts_group.add_argument(
+        "--qwen_stream",
+        action="store_true",
+        help="Enable streaming responses. Audio chunks will be reassembled locally before writing to disk.",
+    )
+    qwen_tts_group.add_argument(
+        "--qwen_request_timeout",
+        type=int,
+        help="Timeout in seconds for downloading Qwen audio URLs (default: 30).",
+    )
+    qwen_tts_group.add_argument(
+        "--qwen_model",
+        dest="model_name",
+        choices=get_qwen_supported_models(),
+        help="Model name for Qwen3 TTS (alias of --model_name).",
+    )
+    qwen_tts_group.add_argument(
+        "--qwen_voice",
+        dest="voice_name",
+        choices=get_qwen_supported_voices(),
+        help="Voice name for Qwen3 TTS (alias of --voice_name).",
     )
 
     args = parser.parse_args()

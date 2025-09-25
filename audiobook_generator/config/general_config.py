@@ -55,6 +55,13 @@ class GeneralConfig:
         self.gemini_sample_rate = getattr(args, 'gemini_sample_rate', None)
         self.gemini_channels = getattr(args, 'gemini_channels', None)
         self.gemini_speaker_map = getattr(args, 'gemini_speaker_map', None)
+        self.gemini_temperature = getattr(args, 'gemini_temperature', None)
+
+        # TTS provider: Qwen3 specific arguments
+        self.qwen_api_key = getattr(args, 'qwen_api_key', None)
+        self.qwen_language_type = getattr(args, 'qwen_language_type', None)
+        self.qwen_stream = getattr(args, 'qwen_stream', None)
+        self.qwen_request_timeout = getattr(args, 'qwen_request_timeout', None)
 
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())

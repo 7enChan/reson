@@ -7,6 +7,7 @@ TTS_OPENAI = "openai"
 TTS_EDGE = "edge"
 TTS_PIPER = "piper"
 TTS_GEMINI = "gemini"
+TTS_QWEN3 = "qwen3"
 
 
 class BaseTTSProvider:  # Base interface for TTS providers
@@ -36,7 +37,7 @@ class BaseTTSProvider:  # Base interface for TTS providers
 
 # Common support methods for all TTS providers
 def get_supported_tts_providers() -> List[str]:
-    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_GEMINI, TTS_PIPER]
+    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_GEMINI, TTS_QWEN3, TTS_PIPER]
 
 
 def get_tts_provider(config) -> BaseTTSProvider:
@@ -62,6 +63,12 @@ def get_tts_provider(config) -> BaseTTSProvider:
         )
 
         return GeminiTTSProvider(config)
+    elif config.tts == TTS_QWEN3:
+        from audiobook_generator.tts_providers.qwen_tts_provider import (
+            Qwen3TTSProvider,
+        )
+
+        return Qwen3TTSProvider(config)
     elif config.tts == TTS_PIPER:
         from audiobook_generator.tts_providers.piper_tts_provider import PiperTTSProvider
 

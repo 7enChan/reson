@@ -23,13 +23,24 @@ class TestHandleArgs(unittest.TestCase):
 
     # Test gemini arguments
     @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--tts', 'gemini',
-                        '--gemini_sample_rate', '24000', '--gemini_channels', '1', '--output_format', 'wav'])
+                        '--gemini_sample_rate', '24000', '--gemini_channels', '1', '--gemini_temperature', '0.1',
+                        '--output_format', 'wav'])
     def test_gemini_args(self):
         config = handle_args()
         self.assertEqual(config.tts, 'gemini')
         self.assertEqual(config.gemini_sample_rate, 24000)
         self.assertEqual(config.gemini_channels, 1)
+        self.assertAlmostEqual(config.gemini_temperature, 0.1)
         self.assertEqual(config.output_format, 'wav')
+
+    @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--tts', 'qwen3',
+                        '--qwen_language_type', 'English', '--qwen_request_timeout', '45', '--qwen_stream'])
+    def test_qwen3_args(self):
+        config = handle_args()
+        self.assertEqual(config.tts, 'qwen3')
+        self.assertEqual(config.qwen_language_type, 'English')
+        self.assertTrue(config.qwen_stream)
+        self.assertEqual(config.qwen_request_timeout, 45)
 
     # Test unsupported TTS provider
     @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--tts', 'unsupported_tts'])
@@ -52,6 +63,10 @@ class TestHandleArgs(unittest.TestCase):
     def test_gemini_provider_in_supported_list(self):
         providers = get_supported_tts_providers()
         self.assertIn('gemini', providers)
+
+    def test_qwen3_provider_in_supported_list(self):
+        providers = get_supported_tts_providers()
+        self.assertIn('qwen3', providers)
 
 
 if __name__ == '__main__':

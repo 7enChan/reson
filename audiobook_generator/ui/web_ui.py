@@ -14,10 +14,14 @@ from audiobook_generator.tts_providers.openai_tts_provider import get_openai_sup
     get_openai_supported_voices, get_openai_instructions_example, get_openai_supported_output_formats
 from audiobook_generator.tts_providers.gemini_tts_provider import get_gemini_supported_models, \
     get_gemini_supported_output_formats, get_gemini_supported_voices
+from audiobook_generator.tts_providers.qwen_tts_provider import get_qwen_supported_language_types, \
+    get_qwen_supported_models, get_qwen_supported_voices
 from audiobook_generator.tts_providers.piper_tts_provider import get_piper_supported_languages, \
     get_piper_supported_voices, get_piper_supported_qualities, get_piper_supported_speakers
 from audiobook_generator.utils.log_handler import generate_unique_log_path
 from main import main
+
+DEFAULT_AZURE_VOICE = "zh-CN-XiaoxiaoMultilingualNeural"
 
 selected_tts = "Edge"
 running_process: Optional[Process] = None
@@ -30,7 +34,14 @@ def on_tab_change(evt: gr.SelectData):
 
 def get_azure_voices_by_language(language):
     voices_list = [voice for voice in get_azure_supported_voices() if voice.startswith(language)]
-    return gr.Dropdown(voices_list, value=voices_list[0], label="Voice", interactive=True, info="Select the voice")
+    default_voice = DEFAULT_AZURE_VOICE if DEFAULT_AZURE_VOICE in voices_list else (voices_list[0] if voices_list else None)
+    return gr.Dropdown(
+        voices_list,
+        value=default_voice,
+        label="Voice",
+        interactive=True,
+        info="Select the voice"
+    )
 
 def get_edge_voices_by_language(language):
     voices_list = [voice for voice in get_edge_tts_supported_voices() if voice.startswith(language)]
@@ -55,7 +66,8 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
                     model, voices, speed, openai_output_format, instructions,
                     azure_language, azure_voice, azure_output_format, azure_break_duration,
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
-                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_speaker_map, gemini_instructions,
+                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_temperature, gemini_speaker_map, gemini_instructions,
+                    qwen_api_key, qwen_model, qwen_voice, qwen_language_type, qwen_locale, qwen_stream, qwen_request_timeout,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence):
 
@@ -69,6 +81,10 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
     sanitized_gemini_key = (gemini_api_key or "").strip()
     if sanitized_gemini_key:
         os.environ["GOOGLE_API_KEY"] = sanitized_gemini_key
+
+    sanitized_qwen_key = (qwen_api_key or "").strip()
+    if sanitized_qwen_key:
+        os.environ["DASHSCOPE_API_KEY"] = sanitized_qwen_key
 
     config = GeneralConfig(None)
     config.input_file = input_file.name if hasattr(input_file, 'name') else input_file
@@ -119,8 +135,19 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
         config.gemini_api_key = sanitized_gemini_key or None
         config.gemini_sample_rate = int(gemini_sample_rate) if gemini_sample_rate else None
         config.gemini_channels = int(gemini_channels) if gemini_channels else None
+        config.gemini_temperature = float(gemini_temperature) if gemini_temperature is not None else None
         config.gemini_speaker_map = gemini_speaker_map.strip() if gemini_speaker_map else None
         config.instructions = gemini_instructions.strip() if gemini_instructions else None
+    elif selected_tts == "Qwen3":
+        config.tts = "qwen3"
+        config.model_name = qwen_model or None
+        config.voice_name = qwen_voice or None
+        config.language = qwen_locale or None
+        config.qwen_api_key = sanitized_qwen_key or None
+        config.qwen_language_type = qwen_language_type or None
+        config.qwen_stream = bool(qwen_stream)
+        config.qwen_request_timeout = int(qwen_request_timeout) if qwen_request_timeout else None
+        config.output_format = "wav"
     elif selected_tts == "Piper":
         config.tts = "piper"
         config.piper_path = piper_executable_path
@@ -215,23 +242,6 @@ def host_ui(config):
                     info="It will not convert the to audio, only prepare chapters and cost. Recommended to toggle on when testing book parsing ***without*** audio generation."
                 )
 
-        with gr.Accordion("云服务凭证（Azure）", open=False):
-            gr.Markdown("在此临时注入 Azure TTS 访问凭证，便于无需提前导出环境变量。")
-            with gr.Row(equal_height=True):
-                azure_api_key = gr.Textbox(
-                    label="Azure TTS Key (MS_TTS_KEY)",
-                    value=os.environ.get("MS_TTS_KEY", ""),
-                    placeholder="只在此处输入，不会写入磁盘",
-                    type="password",
-                    interactive=True,
-                )
-                azure_region = gr.Textbox(
-                    label="Azure 区域 (MS_TTS_REGION)",
-                    value=os.environ.get("MS_TTS_REGION", ""),
-                    placeholder="例如 eastus、westus2 等",
-                    interactive=True,
-                )
-
         gr.Markdown("## 文本预处理")
         with gr.Row(equal_height=True):
             search_and_replace_file = gr.File(
@@ -324,21 +334,35 @@ def host_ui(config):
                 open_ai_tab.select(on_tab_change, inputs=None, outputs=None)
 
             with gr.Tab("Azure", id="azure_tab_id") as azure_tab:
-                gr.Markdown("It is expected that user configured: `MS_TTS_KEY` and `MS_TTS_REGION` in the environment variables.")
+                gr.Markdown("在此配置 Azure TTS 相关参数。若留空，将尝试读取环境变量 `MS_TTS_KEY` 与 `MS_TTS_REGION`。")
+                with gr.Row(equal_height=True):
+                    azure_api_key = gr.Textbox(
+                        label="Azure TTS Key (MS_TTS_KEY)",
+                        value=os.environ.get("MS_TTS_KEY", ""),
+                        placeholder="只在此处输入，不会写入磁盘",
+                        type="password",
+                        interactive=True,
+                    )
+                    azure_region = gr.Textbox(
+                        label="Azure 区域 (MS_TTS_REGION)",
+                        value=os.environ.get("MS_TTS_REGION", ""),
+                        placeholder="例如 eastus、westus2 等",
+                        interactive=True,
+                    )
                 with gr.Row(equal_height=True):
                     azure_language = gr.Dropdown(
                         get_azure_supported_languages(),
-                        value="en-US",
+                        value="zh-CN",
                         label="Language",
                         interactive=True,
                         info="Select source language"
                     )
-                    azure_voice = get_azure_voices_by_language(azure_language.value)
+                    azure_voice = get_azure_voices_by_language("zh-CN")
                     azure_output_format = gr.Dropdown(
                         get_azure_supported_output_formats(),
                         label="Output Format",
                         interactive=True,
-                        value="audio-24khz-48kbitrate-mono-mp3",
+                        value="audio-48khz-96kbitrate-mono-mp3",
                         info="Select output format"
                     )
                     azure_break_duration = gr.Slider(
@@ -466,7 +490,15 @@ def host_ui(config):
                         label="Channels",
                         value="1",
                         interactive=True,
-                        info="Gemini currently outputs mono (1 channel)",
+                        info="Gemini currently输出单声道",
+                    )
+                    gemini_temperature = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        step=0.01,
+                        label="Temperature",
+                        value=0.2,
+                        info="越低越稳定，0.0 表示几乎无随机性",
                     )
 
                 gemini_speaker_map = gr.TextArea(
@@ -483,6 +515,63 @@ def host_ui(config):
                     lines=3,
                     interactive=True,
                 )
+
+            with gr.Tab("Qwen3", id="qwen_tab_id") as qwen_tab:
+                qwen_tab.select(on_tab_change, inputs=None, outputs=None)
+
+                qwen_api_key = gr.Textbox(
+                    label="DashScope API Key (DASHSCOPE_API_KEY)",
+                    value=os.environ.get("DASHSCOPE_API_KEY", ""),
+                    placeholder="Only stored in memory for this session",
+                    type="password",
+                    interactive=True,
+                )
+
+                with gr.Row(equal_height=True):
+                    qwen_model = gr.Dropdown(
+                        get_qwen_supported_models(),
+                        label="Model",
+                        value="qwen3-tts-flash",
+                        interactive=True,
+                        allow_custom_value=True,
+                        info="Select DashScope model snapshot",
+                    )
+                    qwen_voice = gr.Dropdown(
+                        get_qwen_supported_voices(),
+                        label="Voice",
+                        value="Cherry",
+                        interactive=True,
+                        allow_custom_value=True,
+                        info="Pick a Qwen3 voice",
+                    )
+                    qwen_language_type = gr.Dropdown(
+                        get_qwen_supported_language_types(),
+                        label="Language Type",
+                        value="Chinese",
+                        interactive=True,
+                        info="Matches the text language for better pronunciation",
+                    )
+
+                with gr.Row(equal_height=True):
+                    qwen_locale = gr.Textbox(
+                        label="Source Locale",
+                        value="zh-CN",
+                        interactive=True,
+                        info="Used for splitting heuristics (e.g. zh-CN, en-US)",
+                    )
+                    qwen_stream = gr.Checkbox(
+                        label="Enable Streaming",
+                        value=False,
+                        info="Collect streaming chunks instead of single URL fetch",
+                    )
+                    qwen_request_timeout = gr.Slider(
+                        minimum=5,
+                        maximum=120,
+                        step=1,
+                        label="Download Timeout (s)",
+                        value=30,
+                        info="Timeout when downloading audio URL",
+                    )
 
             with gr.Tab("Piper", id="piper_tab_id") as piper_tab:
                 piper_tab.select(on_tab_change, inputs=None, outputs=None)
@@ -620,7 +709,8 @@ def host_ui(config):
                     model, voices, speed, openai_output_format, instructions,
                     azure_language, azure_voice, azure_output_format, azure_break_duration,
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
-                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_speaker_map, gemini_instructions,
+                    gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_temperature, gemini_speaker_map, gemini_instructions,
+                    qwen_api_key, qwen_model, qwen_voice, qwen_language_type, qwen_locale, qwen_stream, qwen_request_timeout,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence
                 ],

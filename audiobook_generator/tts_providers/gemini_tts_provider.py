@@ -29,6 +29,7 @@ DEFAULT_OUTPUT_FORMAT = "wav"
 DEFAULT_BREAK_STRING = " @BRK#"
 DEFAULT_MAX_CHARS = 1800
 DEFAULT_PRICE_PER_1000_CHARS = 0.0
+DEFAULT_TEMPERATURE = 0.2
 
 _SUPPORTED_VOICES = [
     "Zephyr",
@@ -105,6 +106,12 @@ class GeminiTTSProvider(BaseTTSProvider):
         self.price = DEFAULT_PRICE_PER_1000_CHARS
         self._speaker_map = self._parse_speaker_map(config.gemini_speaker_map)
         self._max_chars = DEFAULT_MAX_CHARS if not config.language.startswith("zh") else 1200
+        config.gemini_temperature = (
+            config.gemini_temperature
+            if config.gemini_temperature is not None
+            else DEFAULT_TEMPERATURE
+        )
+        self.temperature = max(0.0, min(1.0, float(config.gemini_temperature)))
 
         api_key = config.gemini_api_key or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
@@ -119,7 +126,8 @@ class GeminiTTSProvider(BaseTTSProvider):
     def __str__(self) -> str:
         return (
             f"GeminiTTSProvider(model={self.config.model_name}, voice={self.config.voice_name}, "
-            f"output_format={self.config.output_format}, sample_rate={self.sample_rate}, channels={self.channels})"
+            f"output_format={self.config.output_format}, sample_rate={self.sample_rate}, channels={self.channels}, "
+            f"temperature={self.temperature})"
         )
 
     def validate_config(self):
@@ -200,6 +208,7 @@ class GeminiTTSProvider(BaseTTSProvider):
         return types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=self._build_speech_config(),
+            temperature=self.temperature,
         )
 
     def _build_speech_config(self) -> types.SpeechConfig:
