@@ -8,6 +8,7 @@ TTS_EDGE = "edge"
 TTS_PIPER = "piper"
 TTS_GEMINI = "gemini"
 TTS_QWEN3 = "qwen3"
+TTS_MINIMAX = "minimax"
 
 
 class BaseTTSProvider:  # Base interface for TTS providers
@@ -37,7 +38,7 @@ class BaseTTSProvider:  # Base interface for TTS providers
 
 # Common support methods for all TTS providers
 def get_supported_tts_providers() -> List[str]:
-    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_GEMINI, TTS_QWEN3, TTS_PIPER]
+    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_GEMINI, TTS_QWEN3, TTS_MINIMAX, TTS_PIPER]
 
 
 def get_tts_provider(config) -> BaseTTSProvider:
@@ -69,6 +70,12 @@ def get_tts_provider(config) -> BaseTTSProvider:
         )
 
         return Qwen3TTSProvider(config)
+    elif config.tts == TTS_MINIMAX:
+        from audiobook_generator.tts_providers.minimax_tts_provider import (
+            MinimaxTTSProvider,
+        )
+
+        return MinimaxTTSProvider(config)
     elif config.tts == TTS_PIPER:
         from audiobook_generator.tts_providers.piper_tts_provider import PiperTTSProvider
 

@@ -16,6 +16,8 @@ from audiobook_generator.tts_providers.gemini_tts_provider import get_gemini_sup
     get_gemini_supported_output_formats, get_gemini_supported_voices
 from audiobook_generator.tts_providers.qwen_tts_provider import get_qwen_supported_language_types, \
     get_qwen_supported_models, get_qwen_supported_voices
+from audiobook_generator.tts_providers.minimax_tts_provider import get_minimax_supported_voices, \
+    get_minimax_supported_language_boosts
 from audiobook_generator.tts_providers.piper_tts_provider import get_piper_supported_languages, \
     get_piper_supported_voices, get_piper_supported_qualities, get_piper_supported_speakers
 from audiobook_generator.utils.log_handler import generate_unique_log_path
@@ -23,7 +25,7 @@ from main import main
 
 DEFAULT_AZURE_VOICE = "zh-CN-XiaoxiaoMultilingualNeural"
 
-selected_tts = "Edge"
+selected_tts = "MiniMax"
 running_process: Optional[Process] = None
 webui_log_file = None
 
@@ -68,6 +70,7 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
                     gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_temperature, gemini_speaker_map, gemini_instructions,
                     qwen_api_key, qwen_model, qwen_voice, qwen_language_type, qwen_locale, qwen_stream, qwen_request_timeout,
+                    minimax_api_key, minimax_voice, minimax_output_format, minimax_speed, minimax_volume, minimax_pitch, minimax_language_boost, minimax_request_timeout,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence):
 
@@ -85,6 +88,10 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
     sanitized_qwen_key = (qwen_api_key or "").strip()
     if sanitized_qwen_key:
         os.environ["DASHSCOPE_API_KEY"] = sanitized_qwen_key
+
+    sanitized_minimax_key = (minimax_api_key or "").strip()
+    if sanitized_minimax_key:
+        os.environ["FAL_KEY"] = sanitized_minimax_key
 
     config = GeneralConfig(None)
     config.input_file = input_file.name if hasattr(input_file, 'name') else input_file
@@ -148,6 +155,16 @@ def process_ui_form(input_file, output_dir, worker_count, log_level, output_text
         config.qwen_stream = bool(qwen_stream)
         config.qwen_request_timeout = int(qwen_request_timeout) if qwen_request_timeout else None
         config.output_format = "wav"
+    elif selected_tts == "MiniMax":
+        config.tts = "minimax"
+        config.voice_name = minimax_voice or None
+        config.output_format = minimax_output_format or "mp3"
+        config.minimax_api_key = sanitized_minimax_key or None
+        config.minimax_speed = float(minimax_speed) if minimax_speed is not None else None
+        config.minimax_volume = float(minimax_volume) if minimax_volume is not None else None
+        config.minimax_pitch = float(minimax_pitch) if minimax_pitch is not None else None
+        config.minimax_language_boost = minimax_language_boost or None
+        config.minimax_request_timeout = int(minimax_request_timeout) if minimax_request_timeout else None
     elif selected_tts == "Piper":
         config.tts = "piper"
         config.piper_path = piper_executable_path
@@ -296,7 +313,77 @@ def host_ui(config):
                 )
 
         gr.Markdown("## 语音服务设置")
-        with gr.Tabs(selected="edge_tab_id"):
+        with gr.Tabs(selected="minimax_tab_id"):
+            with gr.Tab("MiniMax", id="minimax_tab_id") as minimax_tab:
+                minimax_tab.select(on_tab_change, inputs=None, outputs=None)
+
+                minimax_api_key = gr.Textbox(
+                    label="FAL API Key (FAL_KEY)",
+                    value=os.environ.get("FAL_KEY", ""),
+                    placeholder="Automatically saved to browser storage",
+                    type="password",
+                    interactive=True,
+                    elem_id="minimax_api_key",
+                )
+
+                with gr.Row(equal_height=True):
+                    minimax_voice = gr.Dropdown(
+                        get_minimax_supported_voices(),
+                        label="Voice",
+                        value="Wise_Woman",
+                        interactive=True,
+                        allow_custom_value=True,
+                        info="Select a MiniMax voice",
+                    )
+                    minimax_output_format = gr.Dropdown(
+                        ["mp3", "wav"],
+                        label="Output Format",
+                        value="mp3",
+                        interactive=True,
+                        info="Audio output format",
+                    )
+                    minimax_language_boost = gr.Dropdown(
+                        get_minimax_supported_language_boosts(),
+                        label="Language Boost",
+                        value=None,
+                        interactive=True,
+                        info="Optional: enhance recognition of specified language",
+                    )
+
+                with gr.Row(equal_height=True):
+                    minimax_speed = gr.Slider(
+                        minimum=0.5,
+                        maximum=2.0,
+                        step=0.1,
+                        label="Speed",
+                        value=1.0,
+                        info="Speech speed (0.5-2.0)",
+                    )
+                    minimax_volume = gr.Slider(
+                        minimum=0.1,
+                        maximum=2.0,
+                        step=0.1,
+                        label="Volume",
+                        value=1.0,
+                        info="Speech volume (0.1-2.0)",
+                    )
+                    minimax_pitch = gr.Slider(
+                        minimum=-12,
+                        maximum=12,
+                        step=1,
+                        label="Pitch",
+                        value=0,
+                        info="Speech pitch (-12 to 12)",
+                    )
+                    minimax_request_timeout = gr.Slider(
+                        minimum=10,
+                        maximum=180,
+                        step=5,
+                        label="Download Timeout (s)",
+                        value=60,
+                        info="Timeout when downloading audio URL",
+                    )
+
             with gr.Tab("OpenAI", id="openai_tab_id") as open_ai_tab:
                 gr.Markdown("It is expected that user configured: `OPENAI_API_KEY` in the environment variables. Optionally `OPENAI_API_BASE` can be set to overwrite OpenAI API endpoint.")
                 with gr.Row(equal_height=True):
@@ -339,15 +426,17 @@ def host_ui(config):
                     azure_api_key = gr.Textbox(
                         label="Azure TTS Key (MS_TTS_KEY)",
                         value=os.environ.get("MS_TTS_KEY", ""),
-                        placeholder="只在此处输入，不会写入磁盘",
+                        placeholder="Automatically saved to browser storage",
                         type="password",
                         interactive=True,
+                        elem_id="azure_api_key",
                     )
                     azure_region = gr.Textbox(
                         label="Azure 区域 (MS_TTS_REGION)",
                         value=os.environ.get("MS_TTS_REGION", ""),
-                        placeholder="例如 eastus、westus2 等",
+                        placeholder="Automatically saved to browser storage",
                         interactive=True,
+                        elem_id="azure_region",
                     )
                 with gr.Row(equal_height=True):
                     azure_language = gr.Dropdown(
@@ -471,9 +560,10 @@ def host_ui(config):
                 gemini_api_key = gr.Textbox(
                     label="Gemini API Key (GOOGLE_API_KEY)",
                     value=os.environ.get("GOOGLE_API_KEY", ""),
-                    placeholder="Only stored in memory for this session",
+                    placeholder="Automatically saved to browser storage",
                     type="password",
                     interactive=True,
+                    elem_id="gemini_api_key",
                 )
 
                 with gr.Row(equal_height=True):
@@ -522,9 +612,10 @@ def host_ui(config):
                 qwen_api_key = gr.Textbox(
                     label="DashScope API Key (DASHSCOPE_API_KEY)",
                     value=os.environ.get("DASHSCOPE_API_KEY", ""),
-                    placeholder="Only stored in memory for this session",
+                    placeholder="Automatically saved to browser storage",
                     type="password",
                     interactive=True,
+                    elem_id="qwen_api_key",
                 )
 
                 with gr.Row(equal_height=True):
@@ -711,6 +802,7 @@ def host_ui(config):
                     edge_language, edge_voice, edge_output_format, proxy, edge_voice_rate, edge_volume, edge_pitch, edge_break_duration,
                     gemini_api_key, gemini_model, gemini_voice, gemini_output_format, gemini_sample_rate, gemini_channels, gemini_temperature, gemini_speaker_map, gemini_instructions,
                     qwen_api_key, qwen_model, qwen_voice, qwen_language_type, qwen_locale, qwen_stream, qwen_request_timeout,
+                    minimax_api_key, minimax_voice, minimax_output_format, minimax_speed, minimax_volume, minimax_pitch, minimax_language_boost, minimax_request_timeout,
                     piper_executable_path, piper_docker_image, piper_language, piper_voice, piper_quality, piper_speaker,
                     piper_noise_scale, piper_noise_w_scale, piper_length_scale, piper_sentence_silence
                 ],
@@ -723,5 +815,30 @@ def host_ui(config):
             webui_log_file = generate_unique_log_path("EtA_WebUI")
             webui_log_file.touch()
             Log(str(webui_log_file.absolute()), dark=True, xterm_font_size=12)
+
+        gr.Markdown("---")
+        with gr.Row():
+            gr.Markdown("💡 **提示**: API Keys 已自动保存到浏览器本地存储，刷新页面后会自动填充")
+            clear_storage_btn = gr.Button("🗑️ 清除保存的 API Keys", size="sm", variant="secondary")
+
+        # Add button click handler using Gradio's JavaScript
+        clear_storage_btn.click(
+            None,
+            None,
+            None,
+            js="""
+            function() {
+                if (confirm('确定要清除所有保存的 API Keys 吗？')) {
+                    localStorage.removeItem('FAL_KEY');
+                    localStorage.removeItem('GOOGLE_API_KEY');
+                    localStorage.removeItem('DASHSCOPE_API_KEY');
+                    localStorage.removeItem('MS_TTS_KEY');
+                    localStorage.removeItem('MS_TTS_REGION');
+                    alert('已清除所有保存的 API Keys！刷新页面后输入框将为空。');
+                    location.reload();
+                }
+            }
+            """
+        )
 
     ui.launch(server_name=config.host, server_port=config.port)

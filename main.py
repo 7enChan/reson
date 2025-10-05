@@ -11,6 +11,10 @@ from audiobook_generator.tts_providers.qwen_tts_provider import (
     get_qwen_supported_models,
     get_qwen_supported_voices,
 )
+from audiobook_generator.tts_providers.minimax_tts_provider import (
+    get_minimax_supported_voices,
+    get_minimax_supported_language_boosts,
+)
 from audiobook_generator.utils.log_handler import setup_logging, generate_unique_log_path
 
 
@@ -22,7 +26,7 @@ def handle_args():
         "--tts",
         choices=get_supported_tts_providers(),
         default=get_supported_tts_providers()[0],
-           help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, qwen3: Alibaba Qwen3 TTS, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided. When using qwen3, environment variable DASHSCOPE_API_KEY must be set unless --qwen_api_key is provided.",
+           help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, qwen3: Alibaba Qwen3 TTS, minimax: MiniMax Speech-02 HD, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided. When using qwen3, environment variable DASHSCOPE_API_KEY must be set unless --qwen_api_key is provided. When using minimax, environment variable FAL_KEY must be set unless --minimax_api_key is provided.",
     )
     parser.add_argument(
         "--log",
@@ -272,6 +276,46 @@ def handle_args():
         dest="voice_name",
         choices=get_qwen_supported_voices(),
         help="Voice name for Qwen3 TTS (alias of --voice_name).",
+    )
+
+    minimax_tts_group = parser.add_argument_group(title="minimax specific")
+    minimax_tts_group.add_argument(
+        "--minimax_api_key",
+        help="FAL API key for MiniMax TTS. Defaults to FAL_KEY environment variable if not provided.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_speed",
+        type=float,
+        default=1.0,
+        help="Speech speed for MiniMax TTS (0.5-2.0, default: 1.0).",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_volume",
+        type=float,
+        default=1.0,
+        help="Speech volume for MiniMax TTS (0.1-2.0, default: 1.0).",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_pitch",
+        type=float,
+        default=0.0,
+        help="Speech pitch for MiniMax TTS (-12 to 12, default: 0).",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_language_boost",
+        choices=get_minimax_supported_language_boosts(),
+        help="Language boost for MiniMax TTS to enhance recognition of specified languages.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_request_timeout",
+        type=int,
+        help="Timeout in seconds for downloading MiniMax audio URLs (default: 60).",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_voice",
+        dest="voice_name",
+        choices=get_minimax_supported_voices(),
+        help="Voice name for MiniMax TTS (alias of --voice_name).",
     )
 
     args = parser.parse_args()

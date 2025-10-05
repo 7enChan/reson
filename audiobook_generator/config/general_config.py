@@ -63,5 +63,13 @@ class GeneralConfig:
         self.qwen_stream = getattr(args, 'qwen_stream', None)
         self.qwen_request_timeout = getattr(args, 'qwen_request_timeout', None)
 
+        # TTS provider: MiniMax specific arguments
+        self.minimax_api_key = getattr(args, 'minimax_api_key', None)
+        self.minimax_speed = getattr(args, 'minimax_speed', None)
+        self.minimax_volume = getattr(args, 'minimax_volume', None)
+        self.minimax_pitch = getattr(args, 'minimax_pitch', None)
+        self.minimax_language_boost = getattr(args, 'minimax_language_boost', None)
+        self.minimax_request_timeout = getattr(args, 'minimax_request_timeout', None)
+
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())
