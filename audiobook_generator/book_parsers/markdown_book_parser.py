@@ -5,6 +5,12 @@ from typing import Dict, List, Optional, Tuple
 
 from audiobook_generator.book_parsers.base_book_parser import BaseBookParser
 from audiobook_generator.config.general_config import GeneralConfig
+from audiobook_generator.utils.heading_pause import (
+    HEADING_PAUSE_MARKER,
+    SECTION_BREAK_PAUSE_MARKER,
+    should_insert_minimax_heading_pause,
+    should_insert_minimax_section_break_pause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +19,7 @@ class MarkdownBookParser(BaseBookParser):
     FRONT_MATTER_DELIMITER = re.compile(r"^---\s*$")
     METADATA_PATTERN = re.compile(r"^(?P<key>[A-Za-z0-9_\- ]+):\s*(?P<value>.+)$")
     HEADING_PATTERN = re.compile(r"^\s*(#{1,6})\s+(.*)$")
+    SECTION_BREAK_PATTERN = re.compile(r"^\s*([*\-—_·・※＊]\s*){3,}$")
 
     def __init__(self, config: GeneralConfig):
         super().__init__(config)
@@ -170,8 +177,12 @@ class MarkdownBookParser(BaseBookParser):
         if heading:
             heading_text = heading.strip()
             if heading_text:
+                if should_insert_minimax_heading_pause(self.config):
+                    heading_text = f"{heading_text} {HEADING_PAUSE_MARKER.strip()}"
                 parts.append(heading_text)
         if lines:
+            if should_insert_minimax_section_break_pause(self.config):
+                lines = self._insert_section_break_pause_markers(lines)
             body_text = "\n".join(lines).strip()
             if body_text:
                 parts.append(body_text)
@@ -197,6 +208,14 @@ class MarkdownBookParser(BaseBookParser):
 
         text = re.sub(r"\s+", " ", text).strip()
         return text
+
+    def _insert_section_break_pause_markers(self, lines: List[str]) -> List[str]:
+        return [
+            SECTION_BREAK_PAUSE_MARKER.strip()
+            if self.SECTION_BREAK_PATTERN.match(line.strip())
+            else line
+            for line in lines
+        ]
 
     def _apply_newline_mode(self, text: str, break_string: str) -> str:
         text = text.replace("\r\n", "\n")

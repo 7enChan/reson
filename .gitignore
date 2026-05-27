@@ -27,6 +27,7 @@ Thumbs.db
 
 # audio files
 audiobook_output/
+.streamlit_uploads/
 
 private_examples/
 

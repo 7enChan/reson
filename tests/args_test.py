@@ -68,6 +68,11 @@ class TestHandleArgs(unittest.TestCase):
         providers = get_supported_tts_providers()
         self.assertIn('qwen3', providers)
 
+    @patch('sys.argv', ['program', 'input_file.epub', 'output_folder', '--export_m4b'])
+    def test_export_m4b_args(self):
+        config = handle_args()
+        self.assertTrue(config.export_m4b)
+
 
 if __name__ == '__main__':
     unittest.main()

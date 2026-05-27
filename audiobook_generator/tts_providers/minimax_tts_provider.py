@@ -2,10 +2,12 @@ import io
 import logging
 import math
 import os
+import re
 import time
 from typing import List, Optional
 
 import requests
+from pydub import AudioSegment
 
 try:
     import fal_client  # type: ignore
@@ -20,10 +22,16 @@ from audiobook_generator.utils.utils import (
     set_audio_tags,
     split_text,
 )
+from audiobook_generator.utils.heading_pause import (
+    HEADING_PAUSE_MARKER,
+    SECTION_BREAK_PAUSE_MARKER,
+    format_minimax_pause_marker,
+    resolve_minimax_narration_rhythm,
+)
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "fal-ai/minimax/speech-02-hd"
+DEFAULT_MODEL = "fal-ai/minimax/speech-2.8-hd"
 DEFAULT_VOICE = "Chinese (Mandarin)_Warm_Bestie"
 DEFAULT_OUTPUT_FORMAT = "mp3"
 DEFAULT_BREAK_STRING = " @BRK#"
@@ -31,13 +39,19 @@ DEFAULT_MAX_INPUT_CHARS = 4500  # Conservative limit (API max is 5000)
 DEFAULT_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 4
 RETRY_BACKOFF_SECONDS = 2
-# MiniMax pricing: Estimated at $0.015 per 1000 characters (placeholder - adjust based on actual pricing)
-USD_PER_1000_CHAR = 0.015
+# FAL MiniMax Speech 2.8 HD pricing, shown on the model page as $0.1 per 1000 characters.
+USD_PER_1000_CHAR = 0.10
 
-_SUPPORTED_VOICES = [
-    "Chinese (Mandarin)_Warm_Bestie",
-    "Chinese (Mandarin)_Sincere_Adult",
-    "Chinese (Mandarin)_Soft_Girl",
+_SUPPORTED_VOICE_NAMES = {
+    "Chinese (Mandarin)_Warm_Bestie": "温暖闺蜜",
+    "Chinese (Mandarin)_Sincere_Adult": "真诚青年",
+}
+
+_SUPPORTED_VOICES = list(_SUPPORTED_VOICE_NAMES.keys())
+
+_SUPPORTED_MODELS = [
+    "fal-ai/minimax/speech-2.8-hd",
+    "fal-ai/minimax/speech-2.8-turbo",
 ]
 
 _SUPPORTED_LANGUAGE_BOOSTS = [
@@ -129,6 +143,25 @@ def get_minimax_supported_voices() -> List[str]:
     return list(_SUPPORTED_VOICES)
 
 
+def get_minimax_supported_voice_display_names() -> List[str]:
+    return list(_SUPPORTED_VOICE_NAMES.values())
+
+
+def resolve_minimax_voice_id(voice: Optional[str]) -> Optional[str]:
+    if not voice:
+        return None
+    if voice in _SUPPORTED_VOICES:
+        return voice
+    for voice_id, display_name in _SUPPORTED_VOICE_NAMES.items():
+        if voice == display_name:
+            return voice_id
+    return voice
+
+
+def get_minimax_supported_models() -> List[str]:
+    return list(_SUPPORTED_MODELS)
+
+
 def get_minimax_supported_language_boosts() -> List[str]:
     return list(_SUPPORTED_LANGUAGE_BOOSTS)
 
@@ -148,6 +181,11 @@ class MinimaxTTSProvider(BaseTTSProvider):
             config.language,
         )
         self._timeout = self._resolve_timeout(config.minimax_request_timeout)
+        self._narration_rhythm = resolve_minimax_narration_rhythm(config)
+        self._heading_pause_duration = self._narration_rhythm.heading_pause
+        self._paragraph_pause_duration = self._narration_rhythm.paragraph_pause
+        self._section_break_pause_duration = self._narration_rhythm.section_break_pause
+        self._chapter_ending_silence_duration = self._narration_rhythm.chapter_ending_silence
         self.price = USD_PER_1000_CHAR
         self._max_chars = DEFAULT_MAX_INPUT_CHARS
 
@@ -175,6 +213,10 @@ class MinimaxTTSProvider(BaseTTSProvider):
         )
 
     def validate_config(self):
+        if self.config.model_name not in _SUPPORTED_MODELS:
+            raise ValueError(
+                f"MinimaxTTS: Unsupported model '{self.config.model_name}'. Supported models: {_SUPPORTED_MODELS}"
+            )
         if self.config.voice_name not in _SUPPORTED_VOICES:
             raise ValueError(
                 f"MinimaxTTS: Unsupported voice '{self.config.voice_name}'. Supported voices: {_SUPPORTED_VOICES}"
@@ -208,6 +250,8 @@ class MinimaxTTSProvider(BaseTTSProvider):
             audio_segments.append(segment)
             chunk_ids.append(chunk_id)
 
+        self._append_chapter_ending_silence(audio_segments, chunk_ids, audio_tags)
+
         merge_audio_segments(
             audio_segments,
             output_file,
@@ -227,7 +271,56 @@ class MinimaxTTSProvider(BaseTTSProvider):
         return self.config.output_format
 
     def _prepare_text(self, text: str) -> str:
-        return text.replace(self.get_break_string(), "\n\n").strip()
+        prepared_text = self._normalize_rhythm_marker_spacing(text)
+        prepared_text = prepared_text.replace(
+            HEADING_PAUSE_MARKER.strip(),
+            format_minimax_pause_marker(self._heading_pause_duration),
+        )
+        prepared_text = prepared_text.replace(
+            SECTION_BREAK_PAUSE_MARKER.strip(),
+            format_minimax_pause_marker(self._section_break_pause_duration),
+        )
+        paragraph_pause = format_minimax_pause_marker(self._paragraph_pause_duration)
+        prepared_text = prepared_text.replace(
+            self.get_break_string(),
+            f" {paragraph_pause} ",
+        )
+        return re.sub(r"[ \t]{2,}", " ", prepared_text).strip()
+
+    def _normalize_rhythm_marker_spacing(self, text: str) -> str:
+        paragraph_break = re.escape(self.get_break_string().strip())
+        heading_marker = re.escape(HEADING_PAUSE_MARKER.strip())
+        section_marker = re.escape(SECTION_BREAK_PAUSE_MARKER.strip())
+
+        normalized = re.sub(
+            rf"({heading_marker}|{section_marker})\s*{paragraph_break}",
+            r"\1",
+            text,
+        )
+        normalized = re.sub(
+            rf"{paragraph_break}\s*({section_marker})",
+            r"\1",
+            normalized,
+        )
+        return normalized
+
+    def _append_chapter_ending_silence(
+        self,
+        audio_segments: List[io.BytesIO],
+        chunk_ids: List[str],
+        audio_tags: AudioTags,
+    ):
+        if self._chapter_ending_silence_duration <= 0:
+            return
+
+        silence = AudioSegment.silent(
+            duration=int(self._chapter_ending_silence_duration * 1000)
+        )
+        buffer = io.BytesIO()
+        silence.export(buffer, format=self.get_output_file_extension())
+        buffer.seek(0)
+        audio_segments.append(buffer)
+        chunk_ids.append(f"chapter-{audio_tags.idx}_{audio_tags.title}_ending_silence")
 
     def _synthesize_with_retry(self, text: str, chunk_id: str) -> io.BytesIO:
         last_error: Optional[Exception] = None
@@ -248,7 +341,6 @@ class MinimaxTTSProvider(BaseTTSProvider):
 
     def _synthesize(self, text: str) -> io.BytesIO:
         arguments = {
-            "text": text,
             "voice_setting": {
                 "speed": self._speed,
                 "vol": self._volume,
@@ -258,6 +350,7 @@ class MinimaxTTSProvider(BaseTTSProvider):
             },
             "output_format": "url",  # Always use URL format for easier download
         }
+        arguments[self._text_argument_name()] = text
 
         if self._language_boost:
             arguments["language_boost"] = self._language_boost
@@ -279,6 +372,9 @@ class MinimaxTTSProvider(BaseTTSProvider):
         buffer = io.BytesIO(audio_bytes)
         buffer.seek(0)
         return buffer
+
+    def _text_argument_name(self) -> str:
+        return "prompt"
 
     def _download_audio(self, url: str) -> bytes:
         response = requests.get(url, timeout=self._timeout)

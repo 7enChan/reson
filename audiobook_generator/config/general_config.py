@@ -5,6 +5,7 @@ class GeneralConfig:
         self.output_folder = getattr(args, 'output_folder', None)
         self.preview = getattr(args, 'preview', None)
         self.output_text = getattr(args, 'output_text', None)
+        self.export_m4b = getattr(args, 'export_m4b', None)
         self.log = getattr(args, 'log', None)
         self.log_file = None
         self.no_prompt = getattr(args, 'no_prompt', None)
@@ -19,6 +20,7 @@ class GeneralConfig:
         self.remove_endnotes = getattr(args, 'remove_endnotes', None)
         self.remove_reference_numbers = getattr(args, 'remove_reference_numbers', None)
         self.search_and_replace_file = getattr(args, 'search_and_replace_file', None)
+        self.chinese_conversion = getattr(args, 'chinese_conversion', None)
 
         # TTS provider: common arguments
         self.tts = getattr(args, 'tts', None)
@@ -70,6 +72,11 @@ class GeneralConfig:
         self.minimax_pitch = getattr(args, 'minimax_pitch', None)
         self.minimax_language_boost = getattr(args, 'minimax_language_boost', None)
         self.minimax_request_timeout = getattr(args, 'minimax_request_timeout', None)
+        self.minimax_narration_preset = getattr(args, 'minimax_narration_preset', None)
+        self.minimax_heading_pause_duration = getattr(args, 'minimax_heading_pause_duration', None)
+        self.minimax_paragraph_pause_duration = getattr(args, 'minimax_paragraph_pause_duration', None)
+        self.minimax_section_break_pause_duration = getattr(args, 'minimax_section_break_pause_duration', None)
+        self.minimax_chapter_ending_silence_duration = getattr(args, 'minimax_chapter_ending_silence_duration', None)
 
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())

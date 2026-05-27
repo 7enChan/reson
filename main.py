@@ -14,7 +14,10 @@ from audiobook_generator.tts_providers.qwen_tts_provider import (
 from audiobook_generator.tts_providers.minimax_tts_provider import (
     get_minimax_supported_voices,
     get_minimax_supported_language_boosts,
+    get_minimax_supported_models,
 )
+from audiobook_generator.utils.chinese_conversion import get_chinese_conversion_choices
+from audiobook_generator.utils.heading_pause import get_narration_rhythm_preset_choices
 from audiobook_generator.utils.log_handler import setup_logging, generate_unique_log_path
 
 
@@ -26,7 +29,7 @@ def handle_args():
         "--tts",
         choices=get_supported_tts_providers(),
         default=get_supported_tts_providers()[0],
-           help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, qwen3: Alibaba Qwen3 TTS, minimax: MiniMax Speech-02 HD, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided. When using qwen3, environment variable DASHSCOPE_API_KEY must be set unless --qwen_api_key is provided. When using minimax, environment variable FAL_KEY must be set unless --minimax_api_key is provided.",
+           help="Choose TTS provider (default: azure). azure: Azure Cognitive Services, openai: OpenAI TTS API, edge: Microsoft Edge voices, gemini: Google Gemini 2.5 Pro Preview TTS, qwen3: Alibaba Qwen3 TTS, minimax: MiniMax Speech 2.8 HD by default, piper: Piper local/Docker voices. When using azure, environment variables MS_TTS_KEY and MS_TTS_REGION must be set. When using openai, environment variable OPENAI_API_KEY must be set. When using gemini, environment variable GOOGLE_API_KEY must be set unless --gemini_api_key is provided. When using qwen3, environment variable DASHSCOPE_API_KEY must be set unless --qwen_api_key is provided. When using minimax, environment variable FAL_KEY must be set unless --minimax_api_key is provided.",
     )
     parser.add_argument(
         "--log",
@@ -79,6 +82,11 @@ def handle_args():
         help="Enable Output Text. This will export a plain text file for each chapter specified and write the files to the output folder specified.",
     )
     parser.add_argument(
+        "--export_m4b",
+        action="store_true",
+        help="After all selected chapters are generated, export a single M4B audiobook with chapter metadata. Requires ffmpeg and ffprobe.",
+    )
+    parser.add_argument(
         "--remove_endnotes",
         action="store_true",
         help="This will remove endnote numbers from the end or middle of sentences. This is useful for academic books.",
@@ -97,6 +105,12 @@ def handle_args():
         <search>==<replace>
         Note that you may have to specify word boundaries, to avoid replacing parts of words.
         """,
+    )
+    parser.add_argument(
+        "--chinese_conversion",
+        choices=get_chinese_conversion_choices(),
+        default="None",
+        help="Optional OpenCC Chinese conversion before TTS. Use 'Taiwan Traditional to Simplified' for Taiwan Traditional Chinese EPUBs.",
     )
 
     parser.add_argument(
@@ -284,6 +298,12 @@ def handle_args():
         help="FAL API key for MiniMax TTS. Defaults to FAL_KEY environment variable if not provided.",
     )
     minimax_tts_group.add_argument(
+        "--minimax_model",
+        dest="model_name",
+        choices=get_minimax_supported_models(),
+        help="Model name for MiniMax TTS (alias of --model_name).",
+    )
+    minimax_tts_group.add_argument(
         "--minimax_speed",
         type=float,
         default=1.0,
@@ -310,6 +330,32 @@ def handle_args():
         "--minimax_request_timeout",
         type=int,
         help="Timeout in seconds for downloading MiniMax audio URLs (default: 60).",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_narration_preset",
+        choices=get_narration_rhythm_preset_choices(),
+        default="Natural",
+        help="MiniMax narration rhythm preset. Use Meditative for slower spiritual or reflective audiobooks.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_heading_pause_duration",
+        type=float,
+        help="Pause duration in seconds after parsed headings for MiniMax TTS. Set 0 to disable.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_paragraph_pause_duration",
+        type=float,
+        help="Pause duration in seconds for parsed paragraph breaks in MiniMax TTS. Set 0 to use plain paragraph spacing.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_section_break_pause_duration",
+        type=float,
+        help="Pause duration in seconds for section separators such as '***' or '<hr>'. Set 0 to disable.",
+    )
+    minimax_tts_group.add_argument(
+        "--minimax_chapter_ending_silence_duration",
+        type=float,
+        help="Silence duration in seconds appended to the end of each generated MiniMax chapter. Set 0 to disable.",
     )
     minimax_tts_group.add_argument(
         "--minimax_voice",

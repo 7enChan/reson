@@ -12,6 +12,7 @@ def get_edge_config():
         output_folder='output',
         preview=False,
         output_text=False,
+        export_m4b=False,
         log='INFO',
         newline_mode='double',
         chapter_start=1,

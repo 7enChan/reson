@@ -36,8 +36,26 @@ class BaseBookParser:  # Base interface for books parsers
     def sanitize_title(title: str, break_string: str) -> str:
         """Prepare chapter titles for use in file names and ID3 tags."""
         title = title.replace(break_string, " ")
-        sanitized_title = re.sub(r"[^\w\s]", "", title, flags=re.UNICODE)
-        sanitized_title = re.sub(r"\s+", "_", sanitized_title.strip())
+        title = re.sub(r"\s*@(?:HEADING|SECTION)_BRK#\s*", " ", title)
+        title = re.sub(r"\s*@BRK#\s*", " ", title)
+        title = re.sub(r"\s*<#\d+(?:\.\d+)?#>\s*", " ", title)
+        title = re.sub(r"\s+", " ", title.strip())
+        title = re.sub(r"\s+([，。、！？；：])", r"\1", title)
+        title = re.sub(r"([，。、！？；：])\s+", r"\1", title)
+        title = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", title)
+        replacement_map = str.maketrans({
+            "/": "-",
+            "\\": "-",
+            ":": "：",
+            "*": "＊",
+            "?": "？",
+            '"': "＂",
+            "<": "＜",
+            ">": "＞",
+            "|": "-",
+        })
+        sanitized_title = title.translate(replacement_map)
+        sanitized_title = re.sub(r"[\x00-\x1f]", "", sanitized_title).strip(" .")
         if not sanitized_title:
             sanitized_title = "chapter"
         return sanitized_title

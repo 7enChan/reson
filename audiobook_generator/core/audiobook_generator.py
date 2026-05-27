@@ -1,11 +1,14 @@
 import logging
 import multiprocessing
 import os
+from pathlib import Path
 
 from audiobook_generator.book_parsers.base_book_parser import get_book_parser
 from audiobook_generator.config.general_config import GeneralConfig
 from audiobook_generator.core.audio_tags import AudioTags
+from audiobook_generator.core.m4b_exporter import M4BChapter, export_m4b
 from audiobook_generator.tts_providers.base_tts_provider import get_tts_provider
+from audiobook_generator.utils.chinese_conversion import convert_chapters
 from audiobook_generator.utils.log_handler import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,12 @@ class AudiobookGenerator:
     def __str__(self) -> str:
         return f"{self.config}"
 
+    def get_chapter_audio_file(self, idx, title, output_extension):
+        return os.path.join(
+            self.config.output_folder,
+            f"{idx - 1:03d}_{title}.{output_extension}",
+        )
+
     def process_chapter(self, idx, title, text, book_parser):
         """Process a single chapter: write text (if needed) and convert to audio."""
         try:
@@ -41,7 +50,7 @@ class AudiobookGenerator:
 
             # Save chapter text if required
             if self.config.output_text:
-                text_file = os.path.join(self.config.output_folder, f"{idx:04d}_{title}.txt")
+                text_file = os.path.join(self.config.output_folder, f"{idx - 1:03d}_{title}.txt")
                 with open(text_file, "w", encoding="utf-8") as f:
                     f.write(text)
 
@@ -50,9 +59,10 @@ class AudiobookGenerator:
                 return True
 
             # Generate audio file
-            output_file = os.path.join(
-                self.config.output_folder,
-                f"{idx:04d}_{title}.{tts_provider.get_output_file_extension()}",
+            output_file = self.get_chapter_audio_file(
+                idx,
+                title,
+                tts_provider.get_output_file_extension(),
             )
             audio_tags = AudioTags(
                 title, book_parser.get_book_author(), book_parser.get_book_title(), idx
@@ -71,6 +81,23 @@ class AudiobookGenerator:
         idx, title, text, book_parser = args
         return idx, self.process_chapter(idx, title, text, book_parser)
 
+    def export_single_m4b(self, book_parser, chapters_to_process, output_extension):
+        book_title = book_parser.get_book_title() or "audiobook"
+        author = book_parser.get_book_author() or ""
+        output_title = book_parser.sanitize_title(book_title)
+        output_file = Path(self.config.output_folder) / f"{output_title}.m4b"
+        chapters = [
+            M4BChapter(
+                title=title,
+                audio_file=Path(self.get_chapter_audio_file(idx, title, output_extension)),
+            )
+            for idx, (title, _text) in enumerate(
+                chapters_to_process,
+                start=self.config.chapter_start,
+            )
+        ]
+        export_m4b(chapters, output_file, book_title, author)
+
     def run(self):
         try:
             logger.info("Starting audiobook generation...")
@@ -81,6 +108,7 @@ class AudiobookGenerator:
             chapters = book_parser.get_chapters(tts_provider.get_break_string())
             # Filter out empty or very short chapters
             chapters = [(title, text) for title, text in chapters if text.strip()]
+            chapters = convert_chapters(chapters, self.config.chinese_conversion)
 
             logger.info(f"Chapters count: {len(chapters)}.")
 
@@ -110,7 +138,10 @@ class AudiobookGenerator:
             )
             logger.info(f"Total characters in selected book chapters: {total_characters}")
             rough_price = tts_provider.estimate_cost(total_characters)
-            logger.info(f"Estimate book voiceover would cost you roughly: ${rough_price:.2f}\n")
+            logger.info(
+                "费用粗略估算（按当前所选语音服务）："
+                f"${rough_price:.2f}。实际费用以服务商账单为准。\n"
+            )
 
             # Prompt user to continue if not in preview mode
             if self.config.no_prompt:
@@ -154,6 +185,15 @@ class AudiobookGenerator:
                 logger.info(f"Conversion completed with {len(failed_chapters)} failed chapters. Check your output directory: {self.config.output_folder} and log file: {self.config.log_file} for more details.")
             else:
                 logger.info(f"All chapters converted successfully. Check your output directory: {self.config.output_folder}")
+                if self.config.export_m4b and not self.config.preview:
+                    try:
+                        self.export_single_m4b(
+                            book_parser,
+                            chapters_to_process,
+                            tts_provider.get_output_file_extension(),
+                        )
+                    except Exception:
+                        logger.exception("M4B export failed. Chapter audio files were kept in the output directory.")
 
         except KeyboardInterrupt:
             logger.info("Audiobook generation process interrupted by user (Ctrl+C).")
@@ -161,4 +201,3 @@ class AudiobookGenerator:
             logger.exception(f"Error during audiobook generation: {e}")
         finally:
             logger.debug("AudiobookGenerator.run() method finished.")
-
