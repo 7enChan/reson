@@ -18,8 +18,6 @@ services:
       MS_TTS_REGION: <your_region>
       # or OPENAI_API_KEY
       OPENAI_API_KEY: <your_openai_api_key>
-    ports:
-      - "7860:7860"
     volumes:
       - ./:/app
     command: 'your_book.epub audiobook_output'

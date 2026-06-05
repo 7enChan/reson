@@ -82,9 +82,7 @@ When you import the generated MP3 files into Audiobookshelf, the chapter titles 
 
 ## Web Interface (WebUI)
 
-For users who prefer a graphical interface, this project includes a web-based UI built with Gradio. The WebUI provides an intuitive way to configure all the options and convert your EPUB or Markdown files without using the command line.
-
-![WebUI Screenshot](./examples/webui.png)
+For users who prefer a graphical interface, this project includes a Streamlit WebUI. The WebUI provides an intuitive way to configure all the options and convert your EPUB or Markdown files without using the command line.
 
 ### Environment Variables for WebUI
 
@@ -101,7 +99,7 @@ export DASHSCOPE_API_KEY=<your_dashscope_api_key> # For Qwen3 TTS
 
 Make sure to set the environment variables for the service you are using before starting the WebUI.
 
-> Tip: the WebUI now provides input fields for `MS_TTS_KEY`, `MS_TTS_REGION`, `GOOGLE_API_KEY`, and `DASHSCOPE_API_KEY`, so you can paste the values directly in the interface if you prefer not to export them beforehand.
+> Tip: the WebUI provides provider-specific API key fields, so you can paste the values directly in the interface if you prefer not to export them beforehand.
 
 ### Starting the WebUI
 
@@ -110,13 +108,13 @@ Make sure you have followed the [Installation](#installation) steps before start
 To launch the web interface, run:
 
 ```bash
-python3 main_ui.py
+streamlit run main_streamlit.py
 ```
 
-By default, the WebUI will be available at `http://127.0.0.1:7860`. You can customize the host and port:
+By default, the WebUI will be available at `http://localhost:8501`. You can customize the host and port:
 
 ```bash
-python3 main_ui.py --host 127.0.0.1 --port 8080
+streamlit run main_streamlit.py --server.address 127.0.0.1 --server.port 8502
 ```
 
 Remember to press `Ctrl+C` in the terminal to stop the server if you want to stop it after you are done.
@@ -126,7 +124,7 @@ Remember to press `Ctrl+C` in the terminal to stop the server if you want to sto
 The web interface provides:
 
 - **File Upload**: Drag and drop your EPUB or Markdown file directly into the browser
-- **TTS Provider Selection**: Easy switching between Azure, Gemini, Qwen3, OpenAI, Edge, and Piper TTS with provider-specific options
+- **TTS Provider Selection**: Easy switching between MiniMax, Azure, Gemini, Qwen3, OpenAI, Edge, and Piper TTS with provider-specific options
 - **Gemini Controls**: Configure model, voice, speaker mapping, and temperature with a dedicated slider for consistency tuning
 - **Qwen3 Controls**: Choose DashScope voices, language types, streaming mode, and download timeout in one place
 - **Voice Configuration**: Dropdown menus for selecting languages, voices, and output formats
@@ -138,7 +136,7 @@ The web interface provides:
 ### Using the WebUI
 
 1. **Upload your EPUB or Markdown file** using the file selector
-2. **Choose your TTS provider** from the tabs (OpenAI, Azure, Edge, Gemini, Qwen3, or Piper)
+2. **Choose your TTS provider** from the sidebar (MiniMax, OpenAI, Azure, Edge, Gemini, Qwen3, or Piper)
 3. **Configure provider-specific settings**:
    - **OpenAI**: Select model, voice, speed, and format
    - **Azure**: Choose language, voice, format, and break duration
@@ -162,7 +160,7 @@ You can also run the WebUI using Docker. Use the provided `docker-compose.webui.
 docker compose -f docker-compose.webui.yml up
 ```
 
-The WebUI will be accessible at `http://localhost:7860` or `http://127.0.0.1:7860`.
+The WebUI will be accessible at `http://localhost:8501` or `http://127.0.0.1:8501`.
 
 ### Security Considerations of WebUI
 
